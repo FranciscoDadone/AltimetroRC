@@ -11,16 +11,14 @@
 BME280 bmp280;
 Servo ESC;
 
-float altitude;
-float initial_altitude;
-boolean started;
-int motor_speed;
-long time_started;
-boolean stop_motor;
+float altura;
+float altura_0;
+boolean iniciado = false;
+int vel_motor;
+long tiempo_0;
+boolean motor_apagado = false;
 
 void setup() {
-  stop_motor = false;
-
   pinMode(PIN_IN, INPUT_PULLUP);
   pinMode(13, OUTPUT);
   
@@ -30,39 +28,37 @@ void setup() {
   ESC.attach(PIN_OUT);
 
   bmp280.setI2CAddress(0x76);
-  if(bmp280.beginI2C() == false) Serial.println("Sensor A connect failed");
-
-  started = false;
+  if(bmp280.beginI2C() == false) Serial.println("Fallo BMP280");
   
   ESC.writeMicroseconds(1000);
   delay(5000);
 }
 
 void loop() {
-  motor_speed = pulseIn(PIN_IN, HIGH);
+  vel_motor = pulseIn(PIN_IN, HIGH);
   bmp280.readTempC();
-  altitude = bmp280.readFloatAltitudeMeters();
+  altura = bmp280.readFloatAltitudeMeters();
   
-  if (!started && motor_speed >= 1300) {
-    started = true;
-    time_started = millis();
-    initial_altitude = bmp280.readFloatAltitudeMeters();
+  if (!iniciado && vel_motor >= 1300) {
+    iniciado = true;
+    tiempo_0 = millis();
+    altura_0 = bmp280.readFloatAltitudeMeters();
     digitalWrite(13, HIGH);
   }
 
-  if (started && motor_speed < 1300) {
+  if (iniciado && vel_motor < 1300) {
     ESC.writeMicroseconds(1000);
     digitalWrite(13, LOW);
-    stop_motor = true;
+    motor_apagado = true;
   }
 
-  if (started && !stop_motor) {
-    if ((millis() - time_started) / 1000 < TIEMPO_MAX && altitude - initial_altitude <= ALTURA_MAX) {
-      ESC.writeMicroseconds(motor_speed);
+  if (iniciado && !motor_apagado) {
+    if ((millis() - tiempo_0) / 1000 < TIEMPO_MAX && altura - altura_0 <= ALTURA_MAX) {
+      ESC.writeMicroseconds(vel_motor);
     } else {
       ESC.writeMicroseconds(1000);
       digitalWrite(13, LOW);
-      stop_motor = true;
+      motor_apagado = true;
     }
   }
 }
