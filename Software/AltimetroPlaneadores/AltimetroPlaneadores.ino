@@ -1,6 +1,7 @@
 #include <Wire.h>
 #include <Servo.h>
 #include "SparkFunBME280.h"
+#include <TimerOne.h>
 
 #define TIEMPO_MAX 30
 #define ALTURA_MAX 100
@@ -8,20 +9,37 @@
 #define PIN_IN 3
 #define PIN_OUT 2
 
+#define ESPERA 10
+#define INICIADO 20
+#define PARADO 30
+
 BME280 bmp280;
 Servo ESC;
 
-float altura;
-float altura_0;
-boolean iniciado = false;
-int vel_motor;
-long tiempo_0;
-boolean motor_apagado = false;
+struct {
+  float inicial;
+  float actual;
+  float maxima;
+} altura;
+
+struct {
+  int vel;
+  boolean apagado;
+} motor;
+
+struct {
+  int tiempo;
+  int sensor;
+} tiempos;
+
+int estado = ESPERA;
 
 void setup() {
   pinMode(PIN_IN, INPUT_PULLUP);
   pinMode(13, OUTPUT);
-  
+
+  Timer1.initialize(1000);
+  Timer1.attachInterrupt(interrupt_1ms);
   Wire.begin();
   Serial.begin(9600);
 
@@ -34,31 +52,50 @@ void setup() {
   delay(5000);
 }
 
+void interrupt_1ms (void) {
+  if (tiempos.tiempo && estado == INICIADO) tiempos.tiempo--;
+  if (tiempos.sensor) tiempos.sensor--;
+}
+
+void leer_sensor (void);
+
 void loop() {
-  vel_motor = pulseIn(PIN_IN, HIGH);
-  bmp280.readTempC();
-  altura = bmp280.readFloatAltitudeMeters();
-  
-  if (!iniciado && vel_motor >= 1300) {
-    iniciado = true;
-    tiempo_0 = millis();
-    altura_0 = bmp280.readFloatAltitudeMeters();
-    digitalWrite(13, HIGH);
-  }
+  motor.vel = pulseIn(PIN_IN, HIGH);
 
-  if (iniciado && vel_motor < 1300) {
-    ESC.writeMicroseconds(1000);
-    digitalWrite(13, LOW);
-    motor_apagado = true;
-  }
-
-  if (iniciado && !motor_apagado) {
-    if ((millis() - tiempo_0) / 1000 < TIEMPO_MAX && altura - altura_0 <= ALTURA_MAX) {
-      ESC.writeMicroseconds(vel_motor);
-    } else {
+  switch (estado) {
+    case ESPERA:
+      if (motor.vel >= 1300) {
+        tiempos.tiempo = TIEMPO_MAX * 1000;
+        leer_sensor();
+        altura.inicial = altura.actual;
+        estado = INICIADO;
+        digitalWrite(13, HIGH);
+      }
+      break;
+    case INICIADO:
+      leer_sensor();
+      ESC.writeMicroseconds(motor.vel);
+      
+      if (motor.vel < 1300 || !tiempos.tiempo || (altura.actual - altura.inicial) >= ALTURA_MAX) {
+        ESC.writeMicroseconds(1000);
+        digitalWrite(13, LOW);
+        estado = PARADO;
+      }
+      break;
+    case PARADO:
       ESC.writeMicroseconds(1000);
-      digitalWrite(13, LOW);
-      motor_apagado = true;
-    }
+      leer_sensor();
+      break;
   }
+}
+
+
+void leer_sensor () {
+  if (tiempos.sensor) return;
+  
+  altura.actual = bmp280.readFloatAltitudeMeters();
+
+  if (altura.maxima < altura.actual) altura.maxima = altura.actual;
+  
+  tiempos.sensor = 300;
 }
