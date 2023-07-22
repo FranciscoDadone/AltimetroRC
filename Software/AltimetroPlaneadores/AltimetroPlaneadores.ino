@@ -3,8 +3,8 @@
 #include "SparkFunBME280.h"
 #include <MsTimer2.h>
 
-#define TIEMPO_MAX 100
-#define ALTURA_MAX 2
+#define TIEMPO_MAX 30
+#define ALTURA_MAX 60
 
 #define PIN_IN 3
 #define PIN_OUT 2
@@ -36,9 +36,14 @@ struct {
 
 int estado = ESPERA;
 
+boolean deshabilitar_corte;
+
 void setup() {
   pinMode(PIN_IN, INPUT_PULLUP);
   pinMode(13, OUTPUT);
+  pinMode(11, OUTPUT);
+  pinMode(12, INPUT_PULLUP);
+  digitalWrite(11, HIGH);
 
   MsTimer2::set(100, interrupt);
   MsTimer2::start();
@@ -52,6 +57,9 @@ void setup() {
   if(bmp280.beginI2C() == false) Serial.println("Fallo BMP280");
   
   ESC.writeMicroseconds(1000);
+
+  deshabilitar_corte = !digitalRead(12);
+ 
 }
 
 void interrupt() {
@@ -65,10 +73,12 @@ void actualizar_led_altura (void);
 
 void loop() {
   motor.vel = pulseIn(PIN_IN, HIGH);
-
+  
   switch (estado) {
     case PARADO:
-      ESC.writeMicroseconds(1000);
+      if (!deshabilitar_corte) ESC.writeMicroseconds(1000);
+      else ESC.writeMicroseconds(motor.vel);
+      
       leer_sensor();
       if (!tiempos.led) {
         if (tiempos.led_d) tiempos.led_d--;
@@ -91,7 +101,7 @@ void loop() {
       int diff = altura.actual - altura.inicial;
       
       if (!tiempos.tiempo || motor.vel < 1300 || (diff) >= ALTURA_MAX) {
-        ESC.writeMicroseconds(1000);
+        if (!deshabilitar_corte) ESC.writeMicroseconds(1000);
         digitalWrite(13, LOW);
         estado = PARADO;
       }
