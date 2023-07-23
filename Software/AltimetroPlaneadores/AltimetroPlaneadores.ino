@@ -1,10 +1,11 @@
 #include <Wire.h>
 #include <Servo.h>
-#include "SparkFunBME280.h"
+#include <SPI.h>
+#include <Adafruit_BMP280.h>
 #include <MsTimer2.h>
 
 #define TIEMPO_MAX 30
-#define ALTURA_MAX 60
+#define ALTURA_MAX 10
 
 #define PIN_IN 3
 #define PIN_OUT 2
@@ -13,7 +14,7 @@
 #define INICIADO 20
 #define PARADO 30
 
-BME280 bmp280;
+Adafruit_BMP280 bmp;
 Servo ESC;
 
 struct {
@@ -53,10 +54,17 @@ void setup() {
 
   ESC.attach(PIN_OUT);
 
-  bmp280.setI2CAddress(0x76);
-  if(bmp280.beginI2C() == false) Serial.println("Fallo BMP280");
+  bmp.begin(0x76);
+
+  bmp.setSampling(
+    Adafruit_BMP280::MODE_NORMAL,
+    Adafruit_BMP280::SAMPLING_X2,
+    Adafruit_BMP280::SAMPLING_X16,
+    Adafruit_BMP280::FILTER_X16,
+    Adafruit_BMP280::STANDBY_MS_500
+  );
   
-  ESC.writeMicroseconds(1000);
+  //ESC.writeMicroseconds(1000);
 
   deshabilitar_corte = !digitalRead(12);
  
@@ -71,13 +79,18 @@ void interrupt() {
 void leer_sensor (void);
 void actualizar_led_altura (void);
 
+boolean cortado = false;
+
 void loop() {
   motor.vel = pulseIn(PIN_IN, HIGH);
   
   switch (estado) {
     case PARADO:
-      if (!deshabilitar_corte) ESC.writeMicroseconds(1000);
-      else ESC.writeMicroseconds(motor.vel);
+      if (deshabilitar_corte) ESC.writeMicroseconds(motor.vel);
+      else if (!cortado) {
+        ESC.writeMicroseconds(1000);
+        cortado = true;
+      }
       
       leer_sensor();
       if (!tiempos.led) {
@@ -87,9 +100,10 @@ void loop() {
       }
       break;
     case ESPERA:
+      leer_sensor();
+      altura.inicial = altura.actual;
+      
       if (motor.vel >= 1300) {
-        leer_sensor();
-        altura.inicial = altura.actual;
         estado = INICIADO;
         digitalWrite(13, HIGH);
       }
@@ -100,7 +114,7 @@ void loop() {
 
       int diff = altura.actual - altura.inicial;
       
-      if (!tiempos.tiempo || motor.vel < 1300 || (diff) >= ALTURA_MAX) {
+      if (!tiempos.tiempo || motor.vel < 1300 || diff >= ALTURA_MAX) {
         if (!deshabilitar_corte) ESC.writeMicroseconds(1000);
         digitalWrite(13, LOW);
         estado = PARADO;
@@ -109,11 +123,10 @@ void loop() {
   }
 }
 
-
 void leer_sensor () {
   if (tiempos.sensor) return;
   
-  altura.actual = bmp280.readFloatAltitudeMeters();
+  altura.actual = bmp.readAltitude(1013.25);
 
   if (estado != ESPERA && altura.maxima < (altura.actual - altura.inicial)) altura.maxima = altura.actual - altura.inicial;
   
