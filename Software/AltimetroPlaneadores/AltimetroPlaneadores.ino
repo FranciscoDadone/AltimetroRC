@@ -5,7 +5,7 @@
 #include <MsTimer2.h>
 
 #define TIEMPO_MAX 30
-#define ALTURA_MAX 10
+#define ALTURA_MAX 2000
 
 #define PIN_IN 3
 #define PIN_OUT 2
@@ -26,6 +26,7 @@ struct {
 struct {
   int vel;
   boolean apagado;
+  int min_vel;
 } motor;
 
 struct {
@@ -63,10 +64,10 @@ void setup() {
     Adafruit_BMP280::FILTER_X16,
     Adafruit_BMP280::STANDBY_MS_500
   );
-  
-  //ESC.writeMicroseconds(1000);
 
   deshabilitar_corte = !digitalRead(12);
+
+  ESC.writeMicroseconds(900);
  
 }
 
@@ -83,12 +84,13 @@ boolean cortado = false;
 
 void loop() {
   motor.vel = pulseIn(PIN_IN, HIGH);
+  Serial.println(motor.vel);
   
   switch (estado) {
     case PARADO:
       if (deshabilitar_corte) ESC.writeMicroseconds(motor.vel);
       else if (!cortado) {
-        ESC.writeMicroseconds(1000);
+        ESC.writeMicroseconds(900);
         cortado = true;
       }
       
@@ -102,6 +104,8 @@ void loop() {
     case ESPERA:
       leer_sensor();
       altura.inicial = altura.actual;
+
+      ESC.writeMicroseconds(motor.vel);
       
       if (motor.vel >= 1300) {
         estado = INICIADO;
@@ -115,7 +119,7 @@ void loop() {
       int diff = altura.actual - altura.inicial;
       
       if (!tiempos.tiempo || motor.vel < 1300 || diff >= ALTURA_MAX) {
-        if (!deshabilitar_corte) ESC.writeMicroseconds(1000);
+        if (!deshabilitar_corte) ESC.writeMicroseconds(900);
         digitalWrite(13, LOW);
         estado = PARADO;
       }
