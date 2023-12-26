@@ -5,10 +5,10 @@
 #include <MsTimer2.h>
 
 #define TIEMPO_MAX 30
-#define ALTURA_MAX 2000
+#define ALTURA_MAX 100
 
-#define PIN_IN 3
-#define PIN_OUT 2
+#define PIN_IN 2
+#define PIN_OUT 9
 
 #define ESPERA 10
 #define INICIADO 20
@@ -34,6 +34,7 @@ struct {
   int sensor;
   int led;
   int led_d;
+  int aviso_corte;
 } tiempos;
 
 int estado = ESPERA;
@@ -44,7 +45,7 @@ void setup() {
   pinMode(PIN_IN, INPUT_PULLUP);
   pinMode(13, OUTPUT);
   pinMode(11, OUTPUT);
-  pinMode(12, INPUT_PULLUP);
+  pinMode(A6, INPUT_PULLUP);
   digitalWrite(11, HIGH);
 
   MsTimer2::set(100, interrupt);
@@ -53,19 +54,26 @@ void setup() {
   Wire.begin();
   Serial.begin(9600);
 
+  Serial.println("Iniciando Altimetro...");
+
   ESC.attach(PIN_OUT);
 
+  Serial.println("Iniciando BMP");
   bmp.begin(0x76);
 
   bmp.setSampling(
-    Adafruit_BMP280::MODE_NORMAL,
+    Adafruit_BMP280::MODE_FORCED,
     Adafruit_BMP280::SAMPLING_X2,
     Adafruit_BMP280::SAMPLING_X16,
     Adafruit_BMP280::FILTER_X16,
     Adafruit_BMP280::STANDBY_MS_500
   );
 
-  deshabilitar_corte = !digitalRead(12);
+  Serial.println("BMP iniciado");
+  
+  deshabilitar_corte = analogRead(A6) == 0;
+  Serial.print("Corte de motor habilitado: ");
+  Serial.println(!deshabilitar_corte);
 
   ESC.writeMicroseconds(900);
  
@@ -75,17 +83,20 @@ void interrupt() {
   if (tiempos.tiempo && estado == INICIADO) tiempos.tiempo--;
   if (tiempos.sensor) tiempos.sensor--;
   if (tiempos.led) tiempos.led--;
+  if (tiempos.aviso_corte) tiempos.aviso_corte--;
 }
 
 void leer_sensor (void);
 void actualizar_led_altura (void);
+void aviso_corte(void);
 
 boolean cortado = false;
 
 void loop() {
   motor.vel = pulseIn(PIN_IN, HIGH);
-  Serial.println(motor.vel);
-  
+
+  if (motor.min_vel == 0 || (motor.vel != 0 && motor.vel < motor.min_vel)) motor.min_vel = motor.vel;
+
   switch (estado) {
     case PARADO:
       if (deshabilitar_corte) ESC.writeMicroseconds(motor.vel);
@@ -105,9 +116,11 @@ void loop() {
       leer_sensor();
       altura.inicial = altura.actual;
 
+      if (!deshabilitar_corte) aviso_corte();
+
       ESC.writeMicroseconds(motor.vel);
       
-      if (motor.vel >= 1300) {
+      if (motor.vel >= motor.min_vel + 200) {
         estado = INICIADO;
         digitalWrite(13, HIGH);
       }
@@ -118,7 +131,7 @@ void loop() {
 
       int diff = altura.actual - altura.inicial;
       
-      if (!tiempos.tiempo || motor.vel < 1300 || diff >= ALTURA_MAX) {
+      if (!tiempos.tiempo || motor.vel < (motor.min_vel + 30) || diff >= ALTURA_MAX) { // 1300
         if (!deshabilitar_corte) ESC.writeMicroseconds(900);
         digitalWrite(13, LOW);
         estado = PARADO;
@@ -131,6 +144,7 @@ void leer_sensor () {
   if (tiempos.sensor) return;
   
   altura.actual = bmp.readAltitude(1013.25);
+  Serial.println(altura.actual);
 
   if (estado != ESPERA && altura.maxima < (altura.actual - altura.inicial)) altura.maxima = altura.actual - altura.inicial;
   
@@ -187,4 +201,12 @@ void actualizar_led_altura (int metros) {
     ult_digito--;
     digitalWrite(13, HIGH);
   }
+}
+
+void aviso_corte() {
+  if (tiempos.aviso_corte) return;
+
+  digitalWrite(13, !digitalRead(13));
+
+  tiempos.aviso_corte = 1;
 }
